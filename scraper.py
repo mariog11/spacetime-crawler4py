@@ -66,7 +66,7 @@ def URL_tracking(url):
             subdomain_dict[url_netloc] = 1
         URL_DB[ics_domain] = subdomain_dict
 
-    #TODO: Write subdomains sorted in alphabetical order to subdomains.txt
+    # Write subdomains sorted in alphabetical order to subdomains.txt
     ics_subdomains = []
     for main, sub in URL_DB[ics_domain].items():
         ics_subdomains.append((main,sub))
