@@ -6,6 +6,7 @@ import operator
 
 # Additional Libraries
 from bs4 import BeautifulSoup
+from bs4.element import Comment
 from textblob import TextBlob
 
 # Personally written lib
@@ -15,13 +16,14 @@ import shelve
 
 def discard_url_traps(url):
     new_url = urlparse(url)                
-    clean_url = url.replace(new_url.fragment, "")       # Discard URL fragments
+    clean_url = url.replace("#" + new_url.fragment, "")       # Discard URL fragments
     clean_url = clean_url.replace("?" + new_url.query, "")    # Discard URL query params to avoid traps
     return clean_url
 
 def discard_scheme(url):
     curr_url = urlparse(url)
     clean_url = url.replace(curr_url.scheme + "://", "")    #Discard Scheme
+    clean_url = url.replace("www.", "")                     #Discard www.
     return clean_url
 
 def strip_stop_words(page_words):
@@ -45,11 +47,11 @@ def URL_tracking(url):
     URL_set = {URL.replace("\n", "") for URL in f}
     f.close()
     init_set_size = len(URL_set)
-    URL_set.add(discard_scheme(url))
+    URL_set.add(discard_url_traps(discard_scheme(url)))
     if init_set_size < len(URL_set):
         f = open("reports/uniqueurl.txt", "w")
         for page in URL_set:
-            f.write(page + "\n")
+            f.write(discard_url_traps(discard_scheme(page)) + "\n")
         f.close()
 
     # Track subdomains and unique pages within them
@@ -103,7 +105,7 @@ def word_tracking(url, page_words):
         if word in current_word_freq:
             current_word_freq[word] += 1
         else:
-            current_word_freq[word] = 0
+            current_word_freq[word] = 1
     words_DB["word_frequencies"] = current_word_freq
     with open("reports/top50words.txt", "w") as f:
         i = 0
@@ -136,16 +138,26 @@ def scraper(url, resp):
                     valid_links.append(link)
     return valid_links
 
+def html_filter(tag):
+    if tag.parent.name in ['style', 'script', 'head', 'title', 'meta', '[document]'] or isinstance(tag, Comment):
+        return False
+    return True
+
+def get_text(html_soup):
+    html_text = html_soup.findAll(text=True)
+    body_text = filter(html_filter, html_text)
+    return u" ".join(string.strip() for string in body_text)
+
 def extract_next_links(url, resp):
     links = []
     if resp.raw_response is not None and resp.raw_response.apparent_encoding is not None:
         URL_tracking(url)     # Write link to file
         html_main = BeautifulSoup(resp.raw_response.content, 'html.parser')
-        page_text = html_main.get_text()
+        page_text = get_text(html_main)
         page_blob = None
         if page_text is not None:
             page_blob = TextBlob(page_text)
-        if page_blob is not None and len(page_blob.sentences) > 8:
+        if page_blob is not None and len(page_blob.sentences) > 8: # Only crawl pages with high textual content
             word_tracking(discard_scheme(url), page_blob.words)
             for anchor in html_main.find_all('a'):      # Retrive all anchor tags in HTML
                 link = anchor.get('href')
@@ -173,7 +185,8 @@ def is_valid(url):
             or re.match(r"https?://([a-z0-9]+[.])*cs[.]uci[.]edu(\/[A-Za-z0-9\-\._~:\/\?#\[\]@!$&'\(\)\*\+,;\=]*)?", url) \
             or re.match(r"https?://([a-z0-9]+[.])*informatics[.]uci[.]edu(\/[A-Za-z0-9\-\._~:\/\?#\[\]@!$&'\(\)\*\+,;\=]*)?", url) \
             or re.match(r"https?://today[.]uci[.]edu/department/information_computer_sciences(\/[A-Za-z0-9\-\._~:\/\?#\[\]@!$&'\(\)\*\+,;\=]*)?", url)) \
-            and "replytocom" not in url and "pdf" not in url and "event" not in url and "calendar" not in url and "download" not in url
+            and "replytocom" not in url and "pdf" not in url and "event" not in url and "calendar" not in url and "download" not in url \
+            and "photos" not in url and "archive" not in url
 
     except TypeError:
         print ("TypeError for ", parsed)
