@@ -117,25 +117,21 @@ def word_tracking(url, page_words):
             i += 1
         f.close()
     words_DB.close()
-
+    
 def scraper(url, resp):
     valid_links = []
     stat_string = str(resp.status)
     if stat_string == "200" or stat_string[0] == "3":
-        robot_rules = politeness(url)
-        if robot_rules is not None:
-            if robot_rules.request_rate("*") is not None:
-                sleep(robot_rules.request_rate("*").seconds / robot_rules.request_rate("*").requests)
-            if robot_rules.crawl_delay("*") is not None:
-                sleep(robot_rules.crawl_delay("*"))
+        if stat_string[0] == "3":
+            with open("reports/redirectedurls.txt","a") as f:
+                f.write(url + "\n")
+                f.close()
         for link in extract_next_links(url, resp):
             # Check for basic domain rules; allow subdomains and also discard empty links (href = "#")
             if is_valid(link) and link != "#": 
-                if robot_rules is not None:
-                    if robot_rules.can_fetch("*", link):
-                        valid_links.append(link)
-                else:
-                    valid_links.append(link)
+                valid_links.append(link)
+            else:
+                valid_links.append(link)
     return valid_links
 
 def html_filter(tag):
@@ -157,7 +153,7 @@ def extract_next_links(url, resp):
         page_blob = None
         if page_text is not None:
             page_blob = TextBlob(page_text)
-        if page_blob is not None and len(page_blob.sentences) > 8: # Only crawl pages with high textual content
+        if page_blob is not None and len(page_blob.sentences) > 4: # Only crawl pages with high textual content
             word_tracking(discard_scheme(url), page_blob.words)
             for anchor in html_main.find_all('a'):      # Retrive all anchor tags in HTML
                 link = anchor.get('href')
@@ -186,8 +182,7 @@ def is_valid(url):
             or re.match(r"https?://([a-z0-9]+[.])*informatics[.]uci[.]edu(\/[A-Za-z0-9\-\._~:\/\?#\[\]@!$&'\(\)\*\+,;\=]*)?", url) \
             or re.match(r"https?://today[.]uci[.]edu/department/information_computer_sciences(\/[A-Za-z0-9\-\._~:\/\?#\[\]@!$&'\(\)\*\+,;\=]*)?", url)) \
             and "replytocom" not in url and "pdf" not in url and "event" not in url and "calendar" not in url and "download" not in url \
-            and "photos" not in url and "archive" not in url
-
+            and "photos" not in url 
     except TypeError:
         print ("TypeError for ", parsed)
         raise
