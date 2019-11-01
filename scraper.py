@@ -175,7 +175,7 @@ def is_valid(url):
             or re.match(r"https?://([a-z0-9]+[.])*informatics[.]uci[.]edu(\/[A-Za-z0-9\-\._~:\/\?#\[\]@!$&'\(\)\*\+,;\=]*)?", url) \
             or re.match(r"https?://today[.]uci[.]edu/department/information_computer_sciences(\/[A-Za-z0-9\-\._~:\/\?#\[\]@!$&'\(\)\*\+,;\=]*)?", url)) \
             and "replytocom" not in url and "pdf" not in url and "event" not in url and "calendar" not in url and "download" not in url \
-            and "photos" not in url and "archive" not in url
+            and "photos" not in url and "archive" not in url and "doku.php" not in url
     except TypeError:
         print ("TypeError for ", parsed)
         raise
