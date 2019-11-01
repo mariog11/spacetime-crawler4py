@@ -1,19 +1,25 @@
-import re
 from urllib.parse import urlparse
 from urllib.parse import urljoin
 from time import sleep
 import operator
+import os
+import re
+import shelve
 
 # Additional Libraries
 from bs4 import BeautifulSoup
 from bs4.element import Comment
 from textblob import TextBlob
+import editdistance as ed
 
 # Personally written lib
 from stopwords import stopwords
 
-import shelve
+#
+#   HELPER FUNCTIONS
+#
 
+#URL PROCESSING
 def discard_fragment(url):
     new_url = urlparse(url)                
     clean_url = url.replace("#" + new_url.fragment, "")       # Discard URL fragments
@@ -27,6 +33,7 @@ def discard_scheme(url):
         clean_url = clean_url[0:-1]
     return clean_url
 
+# TEXT PROCESSING
 def strip_stop_words(page_words):
     stopset = set()
     pageset = set()
@@ -36,6 +43,17 @@ def strip_stop_words(page_words):
         pageset.add(word)
     return pageset - stopset
 
+def html_filter(tag):
+    if tag.parent.name in ['style', 'script', 'head', 'title', 'meta', '[document]'] or isinstance(tag, Comment):
+        return False
+    return True
+
+def get_text(html_soup):
+    html_text = html_soup.findAll(text=True)
+    body_text = filter(html_filter, html_text)
+    return u" ".join(string.strip() for string in body_text)
+
+# REPORTS MAINTENANCE
 def URL_tracking(url):
     # Track unique URLS
     f = open("reports/uniqueurl.txt", "r")
@@ -112,63 +130,32 @@ def word_tracking(url, page_words):
             i += 1
         f.close()
     words_DB.close()
-    
-def scraper(url, resp):
-    valid_links = []
-    stat_string = str(resp.status)
-    if stat_string == "200" or stat_string[0] == "3":
-        for link in extract_next_links(url, resp):
-            if is_valid(link) and link != "#":
-                for rs in resp.raw_response.history:
-                    URL_tracking(rs.url)
-                URL_tracking(url)     # Write link to file 
-                valid_links.append(link)
-    return valid_links
-
-def html_filter(tag):
-    if tag.parent.name in ['style', 'script', 'head', 'title', 'meta', '[document]'] or isinstance(tag, Comment):
-        return False
-    return True
-
-def get_text(html_soup):
-    html_text = html_soup.findAll(text=True)
-    body_text = filter(html_filter, html_text)
-    return u" ".join(string.strip() for string in body_text)
-
-def extract_next_links(url, resp):
-    links = []
-    if resp.raw_response is not None and resp.raw_response.apparent_encoding is not None:
-        html_main = BeautifulSoup(resp.raw_response.content, 'html.parser')
-        page_text = get_text(html_main)
-        page_blob = None
-        if page_text is not None:
-            page_blob = TextBlob(page_text)
-        if page_blob is not None and len(page_blob.sentences) > 2: # Only crawl pages with high textual content
-            word_tracking(discard_scheme(url), page_blob.words)
-            for anchor in html_main.find_all('a'):      # Retrive all anchor tags in HTML
-                link = anchor.get('href')
-                if link is not None:
-                    clean_link = relative_to_absolute(url, link)
-                    if clean_link not in links:             
-                        links.append(clean_link)    
-    return links
 
 def relative_to_absolute(url, link):
     clean_link = discard_fragment(link)
     if len(clean_link) >= 1 and re.match(r"^\/(\w+[-.?=&/]?)+", clean_link):
         clean_link = urljoin(url, clean_link)
     elif len(clean_link) >= 3 and clean_link.startswith("../"):
+        # Get number of times "../" appears
         return_ct = clean_link.count("../")
         temp_url = url
-        if temp_url[temp_url.rfind("/")] == temp_url[-1]:        # Discard terminal '/' if it exists
+        # Discard terminal '/' if it exists
+        if temp_url[temp_url.rfind("/")] == temp_url[-1]:        
             temp_url = url[0:-1]
-        for i in range(return_ct):                               # Remove return count steps in path from temp_url to adjoin clean_link's relative path
+        #If last path segment is not a directory, increment return_ct
+        if "." in temp_url[temp_url.rfind("/"):]:
+            return_ct += 1
+        # Remove return count steps in path from temp_url to adjoin clean_link's relative path
+        for i in range(return_ct):                               
             temp_url = temp_url[0:temp_url.rfind("/")]
-        clean_link = temp_url + "/" +clean_link.replace("../","")
+        clean_link = temp_url + "/" + clean_link.replace("../","")
     elif len(clean_link) >= 1 and clean_link.startswith("./"):
-        clean_link = url + clean_link
+        if url[-1] != "/":
+            url = url + "/"
+        clean_link = url + clean_link[2:]
     return clean_link
 
+# URL ANALYSIS
 def is_valid(url):
     try:
         parsed = urlparse(url)
@@ -192,3 +179,88 @@ def is_valid(url):
     except TypeError:
         print ("TypeError for ", parsed)
         raise
+
+def is_not_cycling(url):
+    urlparsed = urlparse(url)
+    path_segments = urlparsed.path.split('/')
+    duplicates_set = set()
+    if path_segments is not None: 
+        for seg in path_segments:
+            prev_size = len(duplicates_set)
+            duplicates_set.add(seg)
+            if prev_size == len(duplicates_set):
+                return False
+    return True
+
+def is_kinda_unique(url):   # DEFUNCT
+    if os.stat("reports/similaritydetection.txt").st_size == 0:
+        with open("reports/similaritydetection.txt", "w") as f:
+            f.write(url +"\n" + str(0))
+            f.close()
+        return True
+    else:
+        previous_url = ""
+        similar_url_count = 0
+        with open("reports/similaritydetection.txt", "r") as f:
+            previous_url = f.readline().replace("\n","")
+            similar_url_count = int(f.readline())
+            f.close()
+        # If current url is within edit distance threshold, increment similar_url_count
+        if ed.eval(previous_url, url) < 6:
+            similar_url_count += 1
+            # This ain't unique chief
+            if similar_url_count > 35:
+                # Clear similarity document to start over on the following link
+                with open("reports/similaritydetection.txt", "w") as f:
+                    f.write("")
+                    f.close()
+                return False
+            else:
+                # Update count of link with similar url
+                with open("reports/similaritydetection.txt", "w") as f:
+                    f.write(previous_url + "\n" + str(similar_url_count))
+                    f.close()
+                return True
+        else:
+            # Write the current url to file for future similarity comparison
+            with open("reports/similaritydetection.txt", "w") as f:
+                f.write(url + "\n" + str(0))
+                f.close()
+            return True
+
+#
+#   SCRAPING FUNCTIONS
+#
+
+def scraper(url, resp):
+    valid_links = []
+    stat_string = str(resp.status)
+    if stat_string == "200" or stat_string[0] == "3":
+        for link in extract_next_links(url, resp):
+            if is_valid(link) and is_not_cycling(link) and link != "#":
+                for rs in resp.raw_response.history:
+                    URL_tracking(rs.url)
+                URL_tracking(url)     # Write link to file 
+                valid_links.append(link)
+    return valid_links
+
+def extract_next_links(url, resp):
+    links = []
+    if resp.raw_response is not None and resp.raw_response.apparent_encoding is not None:
+        html_main = BeautifulSoup(resp.raw_response.content, 'html.parser')
+        page_text = get_text(html_main)
+        page_blob = None
+        if page_text is not None:
+            page_blob = TextBlob(page_text)
+        # Only crawl pages with high textual content
+        if page_blob is not None and len(page_blob.sentences) > 2: 
+            word_tracking(discard_scheme(url), page_blob.words)
+            # Retrive all anchor tags in HTML
+            for anchor in html_main.find_all('a'):      
+                link = anchor.get('href')
+                if link is not None:
+                    clean_link = relative_to_absolute(url, link)
+                    if clean_link not in links:             
+                        links.append(clean_link)    
+    return links
+
