@@ -33,6 +33,44 @@ def discard_scheme(url):
         clean_url = clean_url[0:-1]
     return clean_url
 
+def relative_to_absolute(url, link):
+    clean_link = discard_fragment(link)
+    if len(clean_link) >= 1 and re.match(r"^\/(\w+[-.?=&/]?)+", clean_link):
+        path = urlparse(url).path
+        path_segments = None
+        if path is not None:
+            path_segments = path.split("/")
+            if link not in path_segments:
+                clean_link = urljoin(url, clean_link)
+        else:
+            clean_link = urljoin(url, clean_link)
+    elif len(clean_link) >= 3 and clean_link.startswith("../"):
+        # Get number of times "../" appears
+        return_ct = clean_link.count("../")
+        temp_url = url
+        # Discard terminal '/' if it exists
+        if temp_url[temp_url.rfind("/")] == temp_url[-1]:        
+            temp_url = url[0:-1]
+        #If last path segment is not a directory, increment return_ct
+        if "." in temp_url[temp_url.rfind("/"):]:
+            return_ct += 1
+        # Remove return count steps in path from temp_url to adjoin clean_link's relative path
+        for i in range(return_ct):                               
+            temp_url = temp_url[0:temp_url.rfind("/")]
+        clean_link = temp_url + "/" + clean_link.replace("../","")
+    elif len(clean_link) >= 1 and clean_link.startswith("./"):
+        if url[-1] != "/":
+            url = url + "/"
+        path = urlparse(url).path
+        path_segments = None
+        if path is not None:
+            path_segments = path.split("/")
+            if link not in path_segments:
+                clean_link = url + clean_link[2:]
+        else:
+            clean_link = url + clean_link[2:]
+    return clean_link
+
 # TEXT PROCESSING
 def strip_stop_words(page_words):
     stopset = set()
@@ -131,30 +169,6 @@ def word_tracking(url, page_words):
         f.close()
     words_DB.close()
 
-def relative_to_absolute(url, link):
-    clean_link = discard_fragment(link)
-    if len(clean_link) >= 1 and re.match(r"^\/(\w+[-.?=&/]?)+", clean_link):
-        clean_link = urljoin(url, clean_link)
-    elif len(clean_link) >= 3 and clean_link.startswith("../"):
-        # Get number of times "../" appears
-        return_ct = clean_link.count("../")
-        temp_url = url
-        # Discard terminal '/' if it exists
-        if temp_url[temp_url.rfind("/")] == temp_url[-1]:        
-            temp_url = url[0:-1]
-        #If last path segment is not a directory, increment return_ct
-        if "." in temp_url[temp_url.rfind("/"):]:
-            return_ct += 1
-        # Remove return count steps in path from temp_url to adjoin clean_link's relative path
-        for i in range(return_ct):                               
-            temp_url = temp_url[0:temp_url.rfind("/")]
-        clean_link = temp_url + "/" + clean_link.replace("../","")
-    elif len(clean_link) >= 1 and clean_link.startswith("./"):
-        if url[-1] != "/":
-            url = url + "/"
-        clean_link = url + clean_link[2:]
-    return clean_link
-
 # URL ANALYSIS
 def is_valid(url):
     try:
@@ -174,7 +188,7 @@ def is_valid(url):
             or re.match(r"https?://([a-z0-9]+[.])*cs[.]uci[.]edu(\/[A-Za-z0-9\-\._~:\/\?#\[\]@!$&'\(\)\*\+,;\=]*)?", url) \
             or re.match(r"https?://([a-z0-9]+[.])*informatics[.]uci[.]edu(\/[A-Za-z0-9\-\._~:\/\?#\[\]@!$&'\(\)\*\+,;\=]*)?", url) \
             or re.match(r"https?://today[.]uci[.]edu/department/information_computer_sciences(\/[A-Za-z0-9\-\._~:\/\?#\[\]@!$&'\(\)\*\+,;\=]*)?", url)) \
-            and "replytocom" not in url and "pdf" not in url and "event" not in url and "calendar" not in url and "download" not in url \
+            and "replytocom" not in url and  "pdf" not in url and "event" not in url and "calendar" not in url and "download" not in url \
             and "photos" not in url and "archive" not in url and "doku.php" not in url
     except TypeError:
         print ("TypeError for ", parsed)
@@ -235,13 +249,14 @@ def is_kinda_unique(url):   # DEFUNCT
 def scraper(url, resp):
     valid_links = []
     stat_string = str(resp.status)
-    if stat_string == "200" or stat_string[0] == "3":
+
+    if stat_string == "200" or stat_string[0] == "3" and is_valid(url):
+        URL_tracking(url)     # Write link to file 
+        for rs in resp.raw_response.history:
+            URL_tracking(rs.url)
         for link in extract_next_links(url, resp):
-            if is_valid(link) and is_not_cycling(link) and link != "#":
-                for rs in resp.raw_response.history:
-                    URL_tracking(rs.url)
-                URL_tracking(url)     # Write link to file 
-                valid_links.append(link)
+            if is_valid(link) and  link != "#":
+                valid_links.append(discard_fragment(link))
     return valid_links
 
 def extract_next_links(url, resp):
