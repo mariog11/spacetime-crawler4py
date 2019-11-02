@@ -78,7 +78,7 @@ def strip_stop_words(page_words):
     for word in stopwords:
         stopset.add(word)
     for word in page_words:
-        pageset.add(word)
+        pageset.add(word.lower())
     return pageset - stopset
 
 def html_filter(tag):
@@ -197,12 +197,9 @@ def is_valid(url):
 def is_not_cycling(url):
     urlparsed = urlparse(url)
     path_segments = urlparsed.path.split('/')
-    duplicates_set = set()
-    if path_segments is not None: 
-        for seg in path_segments:
-            prev_size = len(duplicates_set)
-            duplicates_set.add(seg)
-            if prev_size == len(duplicates_set):
+    if path_segments is not None  and len(path_segments) > 2: 
+        for i in range(len(path_segments)-1):
+            if path_segments[i] == path_segments[i+1]:
                 return False
     return True
 
@@ -255,7 +252,7 @@ def scraper(url, resp):
         for rs in resp.raw_response.history:
             URL_tracking(rs.url)
         for link in extract_next_links(url, resp):
-            if is_valid(link) and  link != "#":
+            if is_valid(link) and  link != "#" and is_not_cycling(link):
                 valid_links.append(discard_fragment(link))
     return valid_links
 
